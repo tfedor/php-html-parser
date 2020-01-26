@@ -20,9 +20,14 @@ abstract class InnerNode extends ArrayNode
     /**
      * An array of all the children.
      *
-     * @var array
+     * @var ChildrenCollection
      */
-    protected $children = [];
+    protected $children;
+
+    public function __construct() {
+        parent::__construct();
+        $this->children = new ChildrenCollection();
+    }
 
     /**
      * Sets the encoding class to this node and propagates it
@@ -51,7 +56,7 @@ abstract class InnerNode extends ArrayNode
      */
     public function hasChildren(): bool
     {
-        return !empty($this->children);
+        return count($this->children) > 0;
     }
 
     /**
@@ -119,7 +124,7 @@ abstract class InnerNode extends ArrayNode
      */
     public function addChild(AbstractNode $child, int $before = -1): bool
     {
-        $key = null;
+        $prev = null;
 
         // check integrity
         if ($this->isAncestor($child->id())) {
@@ -144,39 +149,27 @@ abstract class InnerNode extends ArrayNode
                     return false;
                 }
 
-                $key = $this->children[$before]['prev'];
+                $prev = $this->children[$before]['prev'];
 
-                if ($key) {
-                    $this->children[$key]['next'] = $child->id();
+                if ($prev) {
+                    $this->children->setNext($prev, $child->id());
                 }
 
-                $this->children[$before]['prev'] = $child->id();
+                $this->children->setPrev($before, $child->id());
                 $next = $before;
             } else {
                 $sibling = $this->lastChild();
-                $key = $sibling->id();
+                $prev = $sibling->id();
 
-                $this->children[$key]['next'] = $child->id();
+                $this->children->setNext($prev, $child->id());
             }
         }
 
-        $keys = array_keys($this->children);
-
-        $insert = [
+        $this->children[$child->id()] = [
           'node' => $child,
           'next' => $next,
-          'prev' => $key,
+          'prev' => $prev,
         ];
-
-        $index = $key ? (int) (array_search($key, $keys, true) + 1) : 0;
-        array_splice($keys, $index, 0, (string) $child->id());
-
-        $children = array_values($this->children);
-        array_splice($children, $index, 0, [$insert]);
-
-        // add the child
-        $combination = array_combine($keys, $children);
-        $this->children = $combination;
 
         // tell child I am the new parent
         $child->setParent($this);
@@ -242,10 +235,10 @@ abstract class InnerNode extends ArrayNode
         $next = $this->children[$id]['next'];
         $prev = $this->children[$id]['prev'];
         if (!is_null($next)) {
-            $this->children[$next]['prev'] = $prev;
+            $this->children->setPrev($next, $prev);
         }
         if (!is_null($prev)) {
-            $this->children[$prev]['next'] = $next;
+            $this->children->setNext($prev, $next);
         }
 
         // remove the child
@@ -321,13 +314,7 @@ abstract class InnerNode extends ArrayNode
      */
     public function isChild(int $id): bool
     {
-        foreach(array_keys($this->children) as $childId) {
-            if ($id == $childId) {
-                return true;
-            }
-        }
-
-        return false;
+        return isset($this->children[$id]);
     }
 
     /**
@@ -346,11 +333,6 @@ abstract class InnerNode extends ArrayNode
         $newChild->prev = (int) $oldChild['prev'];
         $newChild->next = (int) $oldChild['next'];
 
-        $keys = array_keys($this->children);
-        $index = array_search($childId, $keys, true);
-        $keys[$index] = $newChild->id();
-        $combination = array_combine($keys, $this->children);
-        $this->children = $combination;
         $this->children[$newChild->id()] = [
           'prev' => $oldChild['prev'],
           'node' => $newChild,
@@ -359,12 +341,12 @@ abstract class InnerNode extends ArrayNode
 
         // change previous child id to new child
         if ($oldChild['prev'] && isset($this->children[$newChild->prev])) {
-            $this->children[$oldChild['prev']]['next'] = $newChild->id();
+            $this->children->setNext($oldChild['prev'], $newChild->id());
         }
 
         // change next child id to new child
         if ($oldChild['next'] && isset($this->children[$newChild->next])) {
-            $this->children[$oldChild['next']]['prev'] = $newChild->id();
+            $this->children->setPrev($oldChild['next'], $newChild->id());
         }
 
         // remove old child
@@ -388,9 +370,7 @@ abstract class InnerNode extends ArrayNode
             throw new ChildNotFoundException("No children found in node.");
         }
 
-        reset($this->children);
-        $key = (int)key($this->children);
-
+        $key = $this->children->getFirstKey();
         return $this->getChild($key);
     }
 
@@ -408,8 +388,7 @@ abstract class InnerNode extends ArrayNode
             throw new ChildNotFoundException("No children found in node.");
         }
 
-        end($this->children);
-        $key = key($this->children);
+        $key = $this->children->getLastKey();
 
         if (!is_int($key)) {
             throw new LogicalException("Children array contain child with a key that is not an int.");
